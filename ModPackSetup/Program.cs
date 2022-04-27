@@ -11,7 +11,10 @@ namespace ModPackSetup
     {
         private static readonly string _javaInstaller = "https://download.oracle.com/java/18/latest/jdk-18_windows-x64_bin.exe";
         private static readonly string _multiMcInstaller = "https://files.multimc.org/downloads/mmc-stable-win32.zip";
-        private static readonly string _modPackInstance = "https://cdn.discordapp.com/attachments/962102553963814963/966424917539188746/vtmc_rc2.zip";
+        private static readonly string _polyMcInstaller = "https://github.com/PolyMC/PolyMC/releases/download/1.2.1/PolyMC-Windows-x86_64-portable-1.2.1.zip";
+        private static readonly string _modPackInstance = "https://dev.bloodmoon-network.de/MC/vtmc.zip";
+
+        private static MinecraftLauncher _selectedLauner;
 
         private static readonly string _desktopFolder = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
 
@@ -20,20 +23,45 @@ namespace ModPackSetup
         static async Task Main(string[] args)
         {
             Console.ForegroundColor = ConsoleColor.White;
+                        
+
+            Console.WriteLine("Please select:");
+            Console.WriteLine("1.)MultiMc");
+            Console.WriteLine("2.)PolyMc");
+            Console.Write("1 or 2:");
+
+            while (true)
+            {
+                string input = Console.ReadLine();
+                if (input == "1")
+                {
+                    _selectedLauner = MinecraftLauncher.MultiMc;
+                    break;
+                }
+                else if (input == "2")
+                {
+                    _selectedLauner = MinecraftLauncher.polymc;
+                    break;
+                }
+                else
+                {
+                    Console.WriteLine("Please select 1/2: ");
+                }
+            }
 
 
             Console.WriteLine("1/3 Java setup");
             await GetJavaVersion();
             Console.WriteLine("2/3 MultiMc setup");
-            await LookForPreviousMmcAsync();
+            await LookForPreviousLaucherAsync();
             Console.WriteLine("3/3 Installing ModPack");
             await InstallModPack();
             Console.WriteLine("Setup done!");
-            Console.Write("Create MultiMc Desktop shortcut? Y/N:");
-            string mmcFolder = Path.Combine(_desktopFolder, "MultiMC");
+            Console.Write($"Create {_selectedLauner} Desktop shortcut? Y/N:");
+            var mmcFolder = Path.Combine(_desktopFolder, $"{_selectedLauner}");
             if (string.Equals(Console.ReadLine(), "Y", StringComparison.InvariantCultureIgnoreCase))
             {
-                CreateUacProcess("cmd", @$" /C mklink {Path.Combine(_desktopFolder, "MultiMC")} {Path.Combine(mmcFolder, "MultiMC.exe")}").Start();
+                CreateUacProcess("cmd", @$" /C mklink {Path.Combine(_desktopFolder, $"{_selectedLauner}.lnk")} {Path.Combine(mmcFolder, $"{_selectedLauner}.exe")}").Start();
             }
             CreateProcess("explorer.exe", mmcFolder).Start();
             Environment.Exit(0);
@@ -119,33 +147,45 @@ namespace ModPackSetup
             proc.StartInfo = procStartInfo;
             return proc;
         }
-        private static async Task LookForPreviousMmcAsync()
+        private static async Task LookForPreviousLaucherAsync()
         {
-            Console.WriteLine("Looking for MultiMc in desktop");
-            if (Directory.Exists(Path.Combine(_desktopFolder, "MultiMC")))
+            Console.WriteLine($"Looking for {_selectedLauner} in desktop");
+            if (Directory.Exists(Path.Combine(_desktopFolder, $"{_selectedLauner}")))
             {
-                Console.WriteLine("Found MultiMc, Skipping install");
+                Console.WriteLine($"Found {_selectedLauner}, Skipping install");
                 return;
             }
             else
             {
-                Console.WriteLine("MultiMc not found, Installing...");
-                await InstallMultiMc(_desktopFolder);
+                Console.WriteLine($"{_selectedLauner} not found, Installing...");
+                await InstallLauncher(_desktopFolder);
             }
 
         }
-        private static async Task InstallMultiMc(string installPath)
+        private static async Task InstallLauncher(string installPath)
         {
-            Console.WriteLine("Downloading MultiMc");
-            await DownloadHelper.DownloadAsync(_multiMcInstaller, "multimc.zip");
-            Console.WriteLine("Download finished, installing...");
-            ZipFile.ExtractToDirectory(Path.Combine(Directory.GetCurrentDirectory(), "multimc.zip"),
-                installPath, true);
+            Console.WriteLine($"Downloading {_selectedLauner}");
+            if (_selectedLauner == MinecraftLauncher.MultiMc)
+            {
+                await DownloadHelper.DownloadAsync(_multiMcInstaller, $"{_selectedLauner}.zip");
+                Console.WriteLine("Download finished, installing...");
+                ZipFile.ExtractToDirectory(Path.Combine(Directory.GetCurrentDirectory(), $"{_selectedLauner}.zip"),
+                    installPath, true);
+            }
+            else
+            {
+                await DownloadHelper.DownloadAsync(_polyMcInstaller, $"{_selectedLauner}.zip");
+                Console.WriteLine("Download finished, installing...");
+                ZipFile.ExtractToDirectory(Path.Combine(Directory.GetCurrentDirectory(),$"{_selectedLauner}.zip"),
+                    Path.Combine(installPath, _selectedLauner.ToString()), true);
+            }
+            
+            
 
-            var cfg = File.ReadAllLines(Path.Combine(Directory.GetCurrentDirectory(), "multimc.cfg"));
+            var cfg = File.ReadAllLines(Path.Combine(Directory.GetCurrentDirectory(), $"{_selectedLauner}.cfg"));
             var index = Array.FindIndex(cfg, s => s.Contains("LastHostname"));
             cfg[index] = $"LastHostname={System.Environment.MachineName}";
-            File.WriteAllLines(Path.Combine(installPath, "MultiMC", "multimc.cfg"), cfg);
+            File.WriteAllLines(Path.Combine(installPath, $"{_selectedLauner}", $"{_selectedLauner}.cfg"), cfg);
 
         }
         private static async Task InstallModPack()
@@ -154,12 +194,12 @@ namespace ModPackSetup
             await DownloadHelper.DownloadAsync(_modPackInstance, "vtmc.zip");
             Console.WriteLine("Download finished, installing...");
             var modpackPath = Path.Combine(Directory.GetCurrentDirectory(), "vtmc.zip");
-            var MultiMcExe = Path.Combine(_desktopFolder, "MultiMC", "MultiMC.exe");
+            var MultiMcExe = Path.Combine(_desktopFolder, $"{_selectedLauner}", $"{_selectedLauner}.exe");
             var mmc = CreateProcess(MultiMcExe, $"-I \"{modpackPath.Replace("\\", "/")}\"");
             
             
             mmc.Start();
-            await ReadLogAsync(mmc, Path.Combine(_desktopFolder, "MultiMC"));
+            await ReadLogAsync(mmc, Path.Combine(_desktopFolder, $"{_selectedLauner}"));
             await mmc.WaitForExitAsync();
 
 
@@ -168,12 +208,12 @@ namespace ModPackSetup
 
         private static async Task ReadLogAsync(Process mmc, string multimcPath)
         {
-            var logFile = Path.Combine(multimcPath, "MultiMC-0.log");
+            var logFile = Path.Combine(multimcPath, $"{_selectedLauner}-0.log");
             if (File.Exists(logFile))
             {
-                File.Copy(logFile, Path.Combine(multimcPath, "MultiMC-OneClick.log"),true);
+                File.Copy(logFile, Path.Combine(multimcPath, $"{_selectedLauner}-OneClick.log"),true);
             }
-            Thread.Sleep(2000);
+            Thread.Sleep(3000);
             using (var fs = File.Open(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             using (var reader = new StreamReader(fs))
             {
@@ -193,6 +233,11 @@ namespace ModPackSetup
         }
     }
 
+    public enum MinecraftLauncher
+    {
+        MultiMc,
+        polymc
+    }
 
     
 }
